@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { initEffects, cleanupEffects } from './effects';
 import {
   TweaksPanel,
@@ -7,6 +10,8 @@ import {
   TweakRadio,
   TweakToggle
 } from './components/TweaksPanel';
+
+gsap.registerPlugin(ScrollTrigger);
 
 // Hero and Manifesto photo imports
 import imgHeroLeft from './assets/photos/Left-Hero.webp';
@@ -268,47 +273,45 @@ const RASAMS = {
 };
 
 function StoryChapter({ data }) {
-  const ref = useRef(null);
+  const containerRef = useRef(null);
+  const stickyRef = useRef(null);
   const [active, setActive] = useState(0);
   const items = data.items;
-  const stageVh = 70;
 
   useEffect(() => {
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        const el = ref.current;
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        const vh = window.innerHeight;
-        const total = Math.max(1, r.height - vh);
-        const scrolled = Math.max(0, -r.top);
-        const progress = Math.min(0.9999, scrolled / total);
+    // Pin the sticky element for the duration of scrolling through the container
+    const trigger = ScrollTrigger.create({
+      trigger: containerRef.current,
+      start: "top top",
+      end: "bottom bottom",
+      pin: stickyRef.current,
+      pinSpacing: false,
+      scrub: true,
+      snap: {
+        snapTo: 1 / (items.length - 1),
+        duration: { min: 0.25, max: 0.5 },
+        delay: 0.05,
+        ease: "power2.inOut"
+      },
+      onUpdate: (self) => {
+        const progress = self.progress;
         const idx = Math.min(items.length - 1, Math.floor(progress * items.length));
-        setActive(prev => prev === idx ? prev : idx);
-      });
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
+        setActive(idx);
+      }
+    });
+
     return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-      if (raf) cancelAnimationFrame(raf);
+      trigger.kill();
     };
   }, [items.length]);
 
-  const active_r = items[active];
-
   return (
     <section
-      ref={ref}
+      ref={containerRef}
       className={`story-chapter accent-${data.accent}`}
-      style={{ height: `${items.length * stageVh + 30}vh` }}
+      style={{ height: `${items.length * 80 + 20}vh` }}
     >
-      <div className="story-sticky">
+      <div ref={stickyRef} className="story-sticky">
         <div className="story-left">
           <div className="story-chapter-meta">
             <div className="story-chapter-tag">{data.chapter}</div>
@@ -318,20 +321,33 @@ function StoryChapter({ data }) {
           </div>
 
           <div className="story-cards">
-            {items.map((r, i) => (
-              <article key={i} className={`story-card ${i === active ? "is-active" : ""} ${i < active ? "is-past" : ""}`}>
-                <div className="story-card-hindi" lang="hi">{r.hindi}</div>
-                <h3 className="story-card-name">{r.name}</h3>
-                <div className="story-card-italic">{r.italic}</div>
-                <p className="story-card-desc">{r.desc}</p>
-              </article>
-            ))}
+            <AnimatePresence mode="wait">
+              {items.map((r, i) => i === active && (
+                <motion.article
+                  key={i}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -15 }}
+                  transition={{ duration: 0.35, ease: "easeOut" }}
+                  className="story-card is-active"
+                >
+                  <div className="story-card-hindi" lang="hi">{r.hindi}</div>
+                  <h3 className="story-card-name">{r.name}</h3>
+                  <div className="story-card-italic">{r.italic}</div>
+                  <p className="story-card-desc">{r.desc}</p>
+                </motion.article>
+              ))}
+            </AnimatePresence>
           </div>
 
           <div className="story-progress">
             <span className="story-progress-num">{String(active + 1).padStart(2, "0")}</span>
             <span className="story-progress-line">
-              <span style={{ width: `${((active + 1) / items.length) * 100}%` }} />
+              <motion.span 
+                initial={false}
+                animate={{ width: `${((active + 1) / items.length) * 100}%` }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+              />
             </span>
             <span className="story-progress-num muted">{String(items.length).padStart(2, "0")}</span>
           </div>
@@ -342,17 +358,30 @@ function StoryChapter({ data }) {
             className="story-arc"
             style={{ "--active": active, "--total": items.length }}
           >
-            {items.map((r, i) => (
-              <div
-                key={i}
-                className={`story-arc-item ${i === active ? "is-active" : ""}`}
-                style={{ "--i": i, backgroundImage: `url(${r.img})` }}
-              >
-                <span className="arc-hindi" lang="hi">{r.hindi}</span>
-                <span className="arc-no">№ {String(i + 1).padStart(2, "0")}</span>
-                <span className="arc-name">{active_r && i === active ? r.italic : ""}</span>
-              </div>
-            ))}
+            {items.map((r, i) => {
+              const offset = i - active;
+              const abs = Math.abs(offset);
+              return (
+                <motion.div
+                  key={i}
+                  className={`story-arc-item ${i === active ? "is-active" : ""}`}
+                  style={{ 
+                    "--i": i, 
+                    backgroundImage: `url(${r.img})`,
+                    zIndex: 50 - abs,
+                  }}
+                  animate={{
+                    opacity: abs > 3 ? 0 : 1 - abs * 0.30,
+                    filter: i === active ? "none" : `brightness(${1 - abs * 0.08}) saturate(${1 - abs * 0.25}) sepia(${abs * 0.1})`
+                  }}
+                  transition={{ duration: 0.5, ease: "easeOut" }}
+                >
+                  <span className="arc-hindi" lang="hi">{r.hindi}</span>
+                  <span className="arc-no">№ {String(i + 1).padStart(2, "0")}</span>
+                  <span className="arc-name">{i === active ? r.italic : ""}</span>
+                </motion.div>
+              );
+            })}
           </div>
           <div className="story-right-chrome">
             <span>{data.chapter}</span>
